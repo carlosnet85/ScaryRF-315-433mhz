@@ -15,6 +15,10 @@
 #define SCREEN_WIDTH 128 // Largura da tela OLED
 #define SCREEN_HEIGHT 32 // Altura da tela OLED
 
+#define LED_R_PIN 25     // Pino do LED vermelho
+#define LED_G_PIN 33     // Pino do LED verde
+#define LED_B_PIN 32     // Pino do LED azul
+
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 RCSwitch mySwitch = RCSwitch();
 
@@ -24,15 +28,17 @@ int receivedProtocol = 0;        // Protocolo do sinal recebido
 const int rssi_threshold = -75; // Limiar de RSSI para considerar um sinal como forte o suficiente (Analizador de frequencia)
 
 static const uint32_t subghz_frequency_list[] = {
-    /* Lista de frequências em MHz */
-    300000000, 303875000, 304250000, 310000000, 315000000, 318000000,  // Faixa 300-348 MHz
-    390000000, 418000000, 433075000, 433420000, 433920000, 434420000, 434775000, 438900000,  // Faixa 387-464 MHz
-    868350000, 915000000, 925000000  // Faixa 779-928 MHz
+  /* Lista de frequências em MHz */
+  300000000, 303875000, 304250000, 310000000, 315000000, 318000000,  // Faixa 300-348 MHz
+  390000000, 418000000, 433075000, 433420000, 433920000, 434420000, 434775000, 438900000,  // Faixa 387-464 MHz
+  868350000, 915000000, 925000000  // Faixa 779-928 MHz
 };
 
 #define WAVEFORM_SAMPLES 128
 int waveform[WAVEFORM_SAMPLES] = {0};
 int waveformIndex = 0;
+
+void blinkLed(int red, int green, int blue, unsigned long _delay);
 
 void setup() {
   Serial.begin(115200);
@@ -42,9 +48,19 @@ void setup() {
   pinMode(BUTTON_PIN_UP, INPUT_PULLUP); // Configura o pino do botão cima como entrada com pull-up
   pinMode(BUTTON_PIN_DIR, INPUT_PULLUP); // Configura o pino do botão direito como entrada com pull-up
   pinMode(BUTTON_PIN_ESQ, INPUT_PULLUP); // Configura o pino do botão esquerda como entrada com pull-up
+  pinMode(LED_R_PIN, OUTPUT); // Configura o pino do led vermelho como saida
+  pinMode(LED_G_PIN, OUTPUT); // Configura o pino do led verde como saida
+  pinMode(LED_B_PIN, OUTPUT);// Configura o pino do led azul como saida
+
+  // Desliga todos os pinos do led rgb (estou usando um led com anodo comum, ou seja, ele eh logicamente invertido. Se for catodo comum, use LOW)
+  // Isso evita que o led fique ligado antes do loop
+  digitalWrite(LED_R_PIN, HIGH);
+  digitalWrite(LED_G_PIN, HIGH);
+  digitalWrite(LED_B_PIN, HIGH);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Inicializa o display OLED
     Serial.println(F("Falha ao iniciar o display OLED"));
+    analogWrite(LED_R_PIN, 255 - 255);
     while (1); // Fica preso aqui se houver falha no display
   }
 
@@ -57,19 +73,23 @@ void setup() {
   display.println("      |  TOOL  |");
   display.println("      |________|");
   display.display();
+
+  blinkLed(255, 255, 255, 100);
+
   delay(2000);
+
   display.clearDisplay();
 
 
   ELECHOUSE_cc1101.Init(); // Inicializa o módulo CC1101
 
-  
+
   if (digitalRead(FREQUENCY_SWITCH_PIN) == LOW) { //O botão escolhe a frequencia
     ELECHOUSE_cc1101.setMHZ(315); // Muda a frequência para 315MHz
   } else {
     ELECHOUSE_cc1101.setMHZ(433.92); // Mantém a frequência em 433.92MHz
   }
-  
+
   ELECHOUSE_cc1101.SetRx(); // Configura o módulo CC1101 para receber
 
 
@@ -79,13 +99,13 @@ void setup() {
 
 void loop() {
   if (mySwitch.available()) { // Se houver dados disponíveis para leitura
-    
+
     receivedValue = mySwitch.getReceivedValue(); // Lê o valor recebido
     receivedBitLength = mySwitch.getReceivedBitlength(); // Obtém o comprimento do sinal recebido
     unsigned int* rawSignal = mySwitch.getReceivedRawdata(); // Obtém os dados brutos do sinal
     receivedProtocol = mySwitch.getReceivedProtocol(); // Obtém o protocolo do sinal recebido
 
-    
+
     if (receivedValue != 0) { // Se o valor recebido for diferente de 0
       display.clearDisplay();
       display.setCursor(0, 0);
@@ -99,6 +119,8 @@ void loop() {
 
 
       mySwitch.resetAvailable(); // Reinicia o buffer de dados recebidos
+    } else {
+      blinkLed(255, 0, 0, 500);
     }
   }
 
@@ -117,9 +139,12 @@ void loop() {
     display.println("Sending...");
     display.display();
 
+
+
     mySwitch.setProtocol(receivedProtocol); // Configura o protocolo para o valor recebido
     mySwitch.send(receivedValue, receivedBitLength); // Envia o valor recebido com o comprimento do sinal
 
+    blinkLed(0, 255, 0, 500);
 
     delay(500);
     display.clearDisplay();
@@ -135,6 +160,8 @@ void loop() {
     mySwitch.disableTransmit(); // Desabilita a transmissão
     delay(100);
     mySwitch.enableReceive(RX_PIN); // Habilita a recepção
+  } else {
+    blinkLed(255, 0, 0, 500);
   }
 
   if (digitalRead(FREQUENCY_SWITCH_PIN) == LOW) {
@@ -145,186 +172,207 @@ void loop() {
 
   //FUNÇÃO RANDOM (Futuramente Bruteforce eu acho)______________________
 
-   if (digitalRead(BUTTON_PIN_DIR) == LOW){
+  if (digitalRead(BUTTON_PIN_DIR) == LOW) {
 
     display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("Sending Random:");
-  display.display();
+    display.setCursor(0, 0);
+    display.println("Sending Random:");
+    display.display();
 
-  delay(100);
+    delay(100);
 
-  // Gera uma sequência aleatória de 9 dígitos
-  unsigned long randomValue = 100000000 + random(900000000);
+    // Gera uma sequência aleatória de 9 dígitos
+    unsigned long randomValue = 100000000 + random(900000000);
 
 
-       int randomBitLength = 28; // Ajuste conforme necessário 433
-       int randomProtocol = 6;   // Ajuste conforme necessário 433
-       
-  if (digitalRead(FREQUENCY_SWITCH_PIN) == LOW) {
-        // Configura o protocolo e comprimento do sinal
-       randomBitLength = 24; // Ajuste conforme necessário
-       randomProtocol = 1;   // Ajuste conforme necessário
-  }
+    int randomBitLength = 28; // Ajuste conforme necessário 433
+    int randomProtocol = 6;   // Ajuste conforme necessário 433
 
-  mySwitch.disableReceive();
-  delay(100);
-  mySwitch.enableTransmit(TX_PIN);
-  ELECHOUSE_cc1101.SetTx();
-
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("Sending Random:");
-  display.setCursor(0, 10);
-  display.println(randomValue);
-  display.setCursor(0, 20);
-  display.println("Sending...");
-  display.display();
-
-  mySwitch.setProtocol(randomProtocol);
-  mySwitch.send(randomValue, randomBitLength);
-
-  delay(100);
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("Sending Random:");
-  display.setCursor(0, 10);
-  display.println(randomValue);
-  display.setCursor(0, 20);
-  display.println("OK");
-  display.display();
-
-  ELECHOUSE_cc1101.SetRx();
-  mySwitch.disableTransmit();
-  delay(100);
-  mySwitch.enableReceive(RX_PIN);
-    
+    if (digitalRead(FREQUENCY_SWITCH_PIN) == LOW) {
+      // Configura o protocolo e comprimento do sinal
+      randomBitLength = 24; // Ajuste conforme necessário
+      randomProtocol = 1;   // Ajuste conforme necessário
     }
 
-    // Função analizadora de frequencia e potencia _________________________ AOW POTENCIA
+    mySwitch.disableReceive();
+    delay(100);
+    mySwitch.enableTransmit(TX_PIN);
+    ELECHOUSE_cc1101.SetTx();
 
-   if (digitalRead(BUTTON_PIN_UP) == LOW){
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Sending Random:");
+    display.setCursor(0, 10);
+    display.println(randomValue);
+    display.setCursor(0, 20);
+    display.println("Sending...");
+    display.display();
 
+    mySwitch.setProtocol(randomProtocol);
+    mySwitch.send(randomValue, randomBitLength);
+
+    delay(100);
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Sending Random:");
+    display.setCursor(0, 10);
+    display.println(randomValue);
+    display.setCursor(0, 20);
+    display.println("OK");
+    blinkLed(0, 255, 0, 200);
+    display.display();
+
+
+    ELECHOUSE_cc1101.SetRx();
+    mySwitch.disableTransmit();
+    delay(100);
+    mySwitch.enableReceive(RX_PIN);
+
+  }
+
+  // Função analizadora de frequencia e potencia _________________________ AOW POTENCIA
+
+  if (digitalRead(BUTTON_PIN_UP) == LOW) {
+
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.printf("Analyzing...");
+    display.display();
+    analogWrite(LED_B_PIN, 255 - 0);
+
+    while (digitalRead(BUTTON_PIN_UP) == LOW) {
+      // Enquanto o botão de aumento de frequência estiver pressionado
+      int rssi;
+      uint32_t detectedFrequency = 0;
+      int detectedRssi = -100;
+
+      analogWrite(LED_B_PIN, 255 - 255);
+      // Varredura Fina: Varre a lista de frequências definida em subghz_frequency_list
+      for (size_t i = 0; i < sizeof(subghz_frequency_list) / sizeof(subghz_frequency_list[0]); i++) {
+        uint32_t frequency = subghz_frequency_list[i];
+
+        // Configura a frequência atual no módulo CC1101
+        ELECHOUSE_cc1101.setMHZ((float)frequency / 1000000.0);
+        ELECHOUSE_cc1101.SetRx();
+        delayMicroseconds(3500);
+        rssi = ELECHOUSE_cc1101.getRssi(); // Obtém o RSSI do sinal recebido
+
+        // Verifica se o sinal é forte o suficiente e se é mais forte do que os sinais anteriores
+        if (rssi >= rssi_threshold && rssi > detectedRssi) {
+          detectedRssi = rssi;
+          detectedFrequency = frequency;
+        }
+      }
+
+      // Se uma Frequência FINE foi detectada, exibe as informações no display OLED
+      if (detectedFrequency != 0) {
+        analogWrite(LED_B_PIN, 255 - 0);
+        blinkLed(0, 255, 0, 200);
         display.clearDisplay();
         display.setCursor(0, 0);
-        display.printf("Analyzing...");
+        display.printf("Signal detected: ");
+        display.setCursor(0, 10);
+        display.printf("Frequency:%.2fMHz", (float)detectedFrequency / 1000000.0);
+        display.setCursor(0, 20);
+        display.printf("RSSI:%ddBm", detectedRssi);
         display.display();
-        
-    while (digitalRead(BUTTON_PIN_UP) == LOW) {
-        // Enquanto o botão de aumento de frequência estiver pressionado       
-        int rssi;
-        uint32_t detectedFrequency = 0;
-        int detectedRssi = -100;
+      }
 
-        // Varredura Fina: Varre a lista de frequências definida em subghz_frequency_list
-        for (size_t i = 0; i < sizeof(subghz_frequency_list) / sizeof(subghz_frequency_list[0]); i++) {
-            uint32_t frequency = subghz_frequency_list[i];
-
-            // Configura a frequência atual no módulo CC1101
-            ELECHOUSE_cc1101.setMHZ((float)frequency / 1000000.0);
-            ELECHOUSE_cc1101.SetRx();
-            delayMicroseconds(3500);
-            rssi = ELECHOUSE_cc1101.getRssi(); // Obtém o RSSI do sinal recebido
-
-            // Verifica se o sinal é forte o suficiente e se é mais forte do que os sinais anteriores
-            if (rssi >= rssi_threshold && rssi > detectedRssi) {
-                detectedRssi = rssi;
-                detectedFrequency = frequency;
-            }
-        }
-
-        // Se uma Frequência FINE foi detectada, exibe as informações no display OLED
-        if (detectedFrequency != 0) {
-            display.clearDisplay();
-            display.setCursor(0, 0);
-            display.printf("Signal detected: ");
-            display.setCursor(0, 10);
-            display.printf("Frequency:%.2fMHz", (float)detectedFrequency / 1000000.0);
-            display.setCursor(0, 20);
-            display.printf("RSSI:%ddBm", detectedRssi);
-            display.display();
-        }
-
-        delay(600);
+      delay(600);
     }
     ELECHOUSE_cc1101.SetRx(); // Configura o módulo CC1101 para receber novamente
     mySwitch.disableTransmit(); // Desabilita a transmissão
     delay(100);
     mySwitch.enableReceive(RX_PIN); // Habilita a recepção
-   }
+  }
 
 
-   //RAW WAVEFORM________________________
+  //RAW WAVEFORM________________________
 
-   while (digitalRead(BUTTON_PIN_ESQ) == LOW)
+  while (digitalRead(BUTTON_PIN_ESQ) == LOW)
+  {
+    display.clearDisplay();
+    float mhz = 0;
+
+    // Lê continuamente os valores do pino RX e atualiza a forma de onda
+    for (int i = 1; i < SCREEN_WIDTH; i++)
     {
-        display.clearDisplay(); 
-        float mhz = 0;       
 
-        // Lê continuamente os valores do pino RX e atualiza a forma de onda
-        for (int i = 1; i < SCREEN_WIDTH; i++)
-        {            
-                           
-                int rssi = ELECHOUSE_cc1101.getRssi();
-                waveform[i] = map(rssi, -100, -40, 0, 1023); // Mapeia o RSSI para valores de forma de onda
-              
-             if(rssi < -75){              
-                 // Configura a frequência atual no módulo CC1101            
-                if(i  % 2 == 0){
-                  ELECHOUSE_cc1101.setMHZ(433.92);          
-                  ELECHOUSE_cc1101.SetRx();
-                  mhz = 433.92;
-                }
-                else{
-                  ELECHOUSE_cc1101.setMHZ(315);          
-                  ELECHOUSE_cc1101.SetRx();
-                  mhz = 315.00;
-                }
-            }
-            else{
-              display.fillRect(0, 0, 40, 7, SSD1306_BLACK);
-              display.setCursor(0, 0);
-              display.println(mhz);
-            }
+      int rssi = ELECHOUSE_cc1101.getRssi();
+      waveform[i] = map(rssi, -100, -40, 0, 1023); // Mapeia o RSSI para valores de forma de onda
 
-    
-             
-               
-
-            // Conecta os pixels consecutivos com uma linha
-            int prevY = map(waveform[i - 1], 0, 1023, SCREEN_HEIGHT - 1, 8); //Ponto anterior
-            int currY = map(waveform[i], 0, 1023, SCREEN_HEIGHT - 1, 8);     // prox ponto
-
-            display.drawLine(i - 1, prevY, i, currY, SSD1306_WHITE); //liga os pontos
-
-            display.display();
-            delay(30); //Controle da taxa de atualizaçao da tela
-
-            if (i == SCREEN_WIDTH){
-              display.clearDisplay();
-              display.setCursor(0, 0);
-              display.println(mhz);
-              i = 1;
-            }
-            
-            if (digitalRead(BUTTON_PIN_ESQ) != LOW){
-//              if (tem raw no bufffer){
-//              display.fillRect(0, 0, 40, 7, SSD1306_BLACK);
-//              display.setCursor(0, 0);
-//              display.println("Press to Send RAW:");
-//              esperar açao de botao
-//                 if (botao para Baixo){
-//                    envia sinal
-//                  }
-//                 if (botao Esq){
-//                  break;
-//                 }
-//              }
-              break;
-           }
+      if (rssi < -75) {
+        // Configura a frequência atual no módulo CC1101
+        if (i  % 2 == 0) {
+          ELECHOUSE_cc1101.setMHZ(433.92);
+          ELECHOUSE_cc1101.SetRx();
+          mhz = 433.92;
         }
+        else {
+          ELECHOUSE_cc1101.setMHZ(315);
+          ELECHOUSE_cc1101.SetRx();
+          mhz = 315.00;
+        }
+      }
+      else {
+        display.fillRect(0, 0, 40, 7, SSD1306_BLACK);
+        display.setCursor(0, 0);
+        display.println(mhz);
+      }
 
-        delay(500); // Aguarda um pouco antes de começar a próxima leitura
+
+
+
+
+      // Conecta os pixels consecutivos com uma linha
+      int prevY = map(waveform[i - 1], 0, 1023, SCREEN_HEIGHT - 1, 8); //Ponto anterior
+      int currY = map(waveform[i], 0, 1023, SCREEN_HEIGHT - 1, 8);     // prox ponto
+
+      display.drawLine(i - 1, prevY, i, currY, SSD1306_WHITE); //liga os pontos
+
+      display.display();
+      delay(30); //Controle da taxa de atualizaçao da tela
+
+      if (i == SCREEN_WIDTH) {
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.println(mhz);
+        i = 1;
+      }
+
+      if (digitalRead(BUTTON_PIN_ESQ) != LOW) {
+        //              if (tem raw no bufffer){
+        //              display.fillRect(0, 0, 40, 7, SSD1306_BLACK);
+        //              display.setCursor(0, 0);
+        //              display.println("Press to Send RAW:");
+        //              esperar açao de botao
+        //                 if (botao para Baixo){
+        //                    envia sinal
+        //                  }
+        //                 if (botao Esq){
+        //                  break;
+        //                 }
+        //              }
+        break;
+      }
     }
-    
+
+    delay(500); // Aguarda um pouco antes de começar a próxima leitura
+  }
+
 } //FIM LOOP
+
+// Funcao pra piscar o led, so pra ficar mais facil :)
+// Lembrando que o led rgb do codigo eh anodo comum
+void blinkLed(int red, int green, int blue, unsigned long _delay) {
+  analogWrite(LED_R_PIN, 255 - red);
+  analogWrite(LED_G_PIN, 255 - green);
+  analogWrite(LED_B_PIN, 255 - blue);
+
+  delay(_delay);
+
+  analogWrite(LED_R_PIN, 255 - 0);
+  analogWrite(LED_G_PIN, 255 - 0);
+  analogWrite(LED_B_PIN, 255 - 0);
+}
+
